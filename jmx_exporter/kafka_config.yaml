@@ -1,0 +1,29 @@
+# kafka_config.yaml
+---
+# The port is specified via the Java agent arg in docker-compose
+lowercaseOutputName: true
+
+rules:
+  # Expose all Kafka Broker MBeans under kafka.server
+  - pattern: "kafka.server<type=(.+), name=(.+)><>Value"
+    name: "kafka_server_$1_$2"
+    type: GAUGE
+    labels:
+      bean: "$1"
+      attribute: "$2"
+
+  # Topics: messages in/out per-topic
+  - pattern: "kafka.server<type=BrokerTopicMetrics, name=(.+), topic=(.+)><>Count"
+    name: "kafka_topic_$1_total"
+    type: COUNTER
+    labels:
+      metric: "$1"
+      topic: "$2"
+
+  # Consumer fetch metrics
+  - pattern: "kafka.consumer<type=(.+), client-id=(.+)><>Count"
+    name: "kafka_consumer_$1_total"
+    type: COUNTER
+    labels:
+      metric: "$1"
+      client: "$2"

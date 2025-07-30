@@ -1,0 +1,15 @@
+# rabbitmq.conf
+
+# Enable the Prometheus plugin
+management.load_definitions = /etc/rabbitmq/definitions.json
+# (Alternatively, ensure rabbitmq_prometheus is enabled via enabled_plugins)
+
+# Configure the Prometheus endpoint
+prometheus.tcp.port = 15692
+prometheus.tcp.ip = 0.0.0.0
+
+# (Optional) Customize virtual host, credentials, or stats interval:
+# prometheus.interval = 5000
+# prometheus.vhost = /
+# prometheus.user = admin
+# prometheus.password = password

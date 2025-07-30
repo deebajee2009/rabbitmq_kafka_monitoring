@@ -1,0 +1,130 @@
+# docker-compose.yml
+version: '3.8'
+
+services:
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.4.0
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    ports:
+      - "2181:2181"
+
+
+
+  kafka:
+    image: confluentinc/cp-kafka:7.4.0
+    depends_on:
+      - zookeeper
+    ports:
+      - '9092:9092'
+      - '9404:9404'  # JMX exporter port
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092,JMX://localhost:9404
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,JMX:PLAINTEXT
+      KAFKA_JMX_PORT: 9404
+      KAFKA_JMX_HOSTNAME: 0.0.0.0
+      KAFKA_OPTS: "-javaagent:/opt/jmx_exporter/jmx_prometheus_javaagent.jar=9404:/etc/jmx_exporter/config.yaml"
+    volumes:
+      - ./jmx_exporter/jmx_prometheus_javaagent.jar:/opt/jmx_exporter/jmx_prometheus_javaagent.jar
+      - ./jmx_exporter/kafka_config.yaml:/etc/jmx_exporter/config.yaml
+
+  rabbitmq:
+    image: rabbitmq:3.12-management
+    ports:
+      - '5672:5672'
+      - '15672:15672'
+      - '15692:15692'  # Prometheus plugin metrics port
+    environment:
+      RABBITMQ_DEFAULT_USER: admin
+      RABBITMQ_DEFAULT_PASS: password
+      RABBITMQ_SERVER_ADDITIONAL_ERL_ARGS: "-rabbitmq_prometheus true"
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+      - ./rabbitmq_exporter/rabbitmq_conf:/etc/rabbitmq/rabbitmq.conf
+
+  redis:
+      image: redis:7-alpine
+      ports:
+        - "6379:6379"
+
+    prometheus:
+      image: prom/prometheus:latest
+      ports:
+        - "9090:9090"
+      volumes:
+        - ./prometheus.yml:/etc/prometheus/prometheus.yml
+        - prometheus_data:/prometheus
+      command:
+        - '--config.file=/etc/prometheus/prometheus.yml'
+        - '--storage.tsdb.path=/prometheus'
+        - '--web.console.libraries=/etc/prometheus/console_libraries'
+        - '--web.console.templates=/etc/prometheus/consoles'
+
+    grafana:
+      image: grafana/grafana:latest
+      ports:
+        - "3000:3000"
+      environment:
+        - GF_SECURITY_ADMIN_PASSWORD=admin
+      volumes:
+        - grafana_data:/var/lib/grafana
+        - ./grafana/dashboards:/var/lib/grafana/dashboards
+        - ./grafana/provisioning:/etc/grafana/provisioning
+
+    django:
+      build: .
+      ports:
+        - "8000:8000"
+        - "8001:8001"  # Prometheus metrics port
+      depends_on:
+        - kafka
+        - rabbitmq
+        - redis
+      environment:
+        - DEBUG=True
+        - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+        - RABBITMQ_HOST=rabbitmq
+        - RABBITMQ_USERNAME=admin
+        - RABBITMQ_PASSWORD=password
+      volumes:
+        - .:/app
+      command: python manage.py runserver 0.0.0.0:8000
+
+    celery:
+      build: .
+      depends_on:
+        - django
+        - redis
+        - rabbitmq
+      environment:
+        - DEBUG=True
+        - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+        - RABBITMQ_HOST=rabbitmq
+        - RABBITMQ_USERNAME=admin
+        - RABBITMQ_PASSWORD=password
+      volumes:
+        - .:/app
+      command: celery -A message_broker_project worker -l info
+
+    celery-beat:
+      build: .
+      depends_on:
+        - django
+        - redis
+      environment:
+        - DEBUG=True
+        - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+        - RABBITMQ_HOST=rabbitmq
+        - RABBITMQ_USERNAME=admin
+        - RABBITMQ_PASSWORD=password
+      volumes:
+        - .:/app
+      command: celery -A message_broker_project beat -l info
+
+volumes:
+  rabbitmq_data:
+  prometheus_data:
+  grafana_data:
